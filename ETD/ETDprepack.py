@@ -1,5 +1,6 @@
 import os
 import csv
+import subprocess
 from datetime import datetime
 from lxml import etree
 import shutil
@@ -177,3 +178,5 @@ if __name__ == "__main__":
     merge_and_delete_csv_files(folders_csv, xml_csv, merged_csv)
     rename_files_in_folders(root_directory)
     print("Process completed successfully.")
+
+    subprocess.Popen(['start', 'excel', merged_csv], shell=True)
