@@ -3,6 +3,7 @@ import os
 def rename_files_in_folders(root_folder):
     for folder_name, _, files in os.walk(root_folder):
         folder_base = os.path.basename(folder_name)
+        files.sort()
         file_counter = 1
 
         for file_name in files:
