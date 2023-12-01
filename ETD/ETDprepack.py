@@ -5,7 +5,6 @@ from datetime import datetime
 from lxml import etree
 import shutil
 import pandas as pd
-from PyPDF2 import PdfFileReader
 
 # Function to extract information from the XML file
 def extract_info(xml_file_path):
