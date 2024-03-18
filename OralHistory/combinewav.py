@@ -10,7 +10,7 @@ def combine_wav_files(root_directory):
 
         if len(wave_files) > 1:
             
-            wave_files.sort()
+            wave_files.sort(key=lambda x: x.lower())
 
             first_wave_file = wave.open(os.path.join(root, wave_files[0]), 'rb')
             params = first_wave_file.getparams()
