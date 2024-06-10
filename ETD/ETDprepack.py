@@ -1,18 +1,28 @@
-import os
-import csv
-import subprocess
+import os, csv, subprocess, shutil, zipfile
+import pandas as pd
 from datetime import datetime
 from lxml import etree
-import shutil
-import pandas as pd
+from PyPDF2 import PdfFileReader
 
-# Function to extract information from the XML file
+
+def unzip(root_directory): 
+    directory = os.path.abspath(root_directory)
+    for filename in os.listdir(directory):
+        file_path = os.path.join(directory, filename)
+
+        if zipfile.is_zipfile(file_path):
+            extract_path = os.path.join(directory, os.path.splitext(filename)[0])
+            os.makedirs(extract_path, exist_ok=True)
+
+            with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_path)
+
+            os.remove(file_path)
+
 def extract_info(xml_file_path):
     try:
         tree = etree.parse(xml_file_path)
         root = tree.getroot()
-
-        # Extracting information from the XML elements
         surname = root.findtext('.//DISS_surname')
         title = root.findtext('.//DISS_title')
         comp_date = root.findtext('.//DISS_comp_date')
@@ -35,28 +45,25 @@ def remove_elements_from_xml(xml_file_path):
             ('DISS_citizenship', None),
         ]
 
-        # Iterate through the elements to remove
         for element_tag, _ in elements_to_remove:
             xpath_expr = f'//{element_tag}'
             elements = root.xpath(xpath_expr)
             for element in elements:
                 element.getparent().remove(element)
 
-        # Save the modified XML back to the file with pretty-printing
         tree.write(xml_file_path, encoding='utf-8', xml_declaration=True, pretty_print=True)
 
         print(f'Removed elements from {xml_file_path}')
     except Exception as e:
         print(f'Error processing {xml_file_path}: {e}')
 
-# Function to get PDF file name from a folder
 def get_pdf_filename(folder_path):
     pdf_files = [f for f in os.listdir(folder_path) if f.endswith('.pdf')]
     
     if not pdf_files:
         return None
     elif len(pdf_files) == 1:
-        return os.path.splitext(pdf_files[0])[0]  # Remove '.pdf' extension
+        return os.path.splitext(pdf_files[0])[0]  
     else:
         print("\n Multiple PDF files found in the folder:")
         for i, pdf_file in enumerate(pdf_files, start=1):
@@ -65,17 +72,15 @@ def get_pdf_filename(folder_path):
         selection = input("Enter the number corresponding to the PDF file to use: ")
         try:
             selection_index = int(selection) - 1
-            return os.path.splitext(pdf_files[selection_index])[0]  # Remove '.pdf' extension
+            return os.path.splitext(pdf_files[selection_index])[0]
         except (ValueError, IndexError):
             print("Invalid selection. Using the first PDF file.")
-            return os.path.splitext(pdf_files[0])[0]  # Remove '.pdf' extension
+            return os.path.splitext(pdf_files[0])[0]
 
-# Function to walk the directory and collect first-level subdirectory names
 def collect_first_level_subdirectories(directory):
     subdirectories = [os.path.join(directory, entry) for entry in os.listdir(directory) if os.path.isdir(os.path.join(directory, entry))]
     return subdirectories
 
-# Function to move subfolders up
 def move_subfolders_up(target_directory):
     for root, dirs, files in os.walk(target_directory):
         for dir_name in dirs:
@@ -93,7 +98,7 @@ def move_subfolders_up(target_directory):
 
                     shutil.rmtree(sub_folder)
 
-# Function to rename subdirectories using the provided naming convention and user input
+
 def rename_subdirectories(subdirectories, folders_csv, start_number):
     with open(folders_csv, 'w', newline='', encoding='utf-8') as csv_file1:
         csv_writer = csv.writer(csv_file1)
@@ -102,11 +107,10 @@ def rename_subdirectories(subdirectories, folders_csv, start_number):
         for index, subdir in enumerate(subdirectories):
             pdf_filename = get_pdf_filename(subdir)
             new_number = start_number + index
-            new_name = f'GRAD_ETD{new_number:06d}'  # Generating the new name
+            new_name = f'GRAD_ETD{new_number:06d}'  
             os.rename(subdir, os.path.join(os.path.dirname(subdir), new_name))
             csv_writer.writerow([pdf_filename, new_name])
 
-# Function to rename files in folders according to UUID convention
 def rename_files_in_folders(root_directory):
     for folder_name, _, files in os.walk(root_directory):
         folder_base = os.path.basename(folder_name)
@@ -158,6 +162,7 @@ if __name__ == "__main__":
     xml_csv = f'xml_csv_{current_datetime}.csv'
     merged_csv = f'ETD_batch_metadata_{current_datetime}.csv'
 
+    unzip(root_directory)
     move_subfolders_up(root_directory)
     first_level_subdirectories = collect_first_level_subdirectories(root_directory)
     rename_subdirectories(first_level_subdirectories, folders_csv, start_number)
