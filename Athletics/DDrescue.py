@@ -21,7 +21,7 @@ def main():
     disc_number_formatted = f"{int(disc_number):04d}"  # Format the number to 6 digits with leading zeros
     
     # Define file names based on the convention
-    base_name = f"A2020-04_disk{disc_number_formatted}"
+    base_name = f"A2020-04_disc{disc_number_formatted}"
     documents_folder = os.path.expanduser("~/Documents")
     target_folder = os.path.join(documents_folder, base_name)
     
