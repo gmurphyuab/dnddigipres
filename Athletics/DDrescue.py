@@ -16,12 +16,12 @@ def run_ddrescue(command):
         print(f"Command failed with error: {e}")
 
 def main():
-    # Get user input for the disc number
-    disc_number = input("Enter the disc number (e.g., 1): ")
-    disc_number_formatted = f"{int(disc_number):04d}"  # Format the number to 6 digits with leading zeros
+    # Get user input for the disk number
+    disk_number = input("Enter the disk number (e.g., 1): ")
+    disk_number_formatted = f"{int(disk_number):04d}"  # Format the number to 4 digits with leading zeros
     
     # Define file names based on the convention
-    base_name = f"A2020-04_disc{disc_number_formatted}"
+    base_name = f"A2020-04_disk{disk_number_formatted}"
     documents_folder = os.path.expanduser("~/Documents")
     target_folder = os.path.join(documents_folder, base_name)
     
