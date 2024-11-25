@@ -43,8 +43,8 @@ location_uuid = os.getenv('LOCATION_UUID')
 API_KEY = os.getenv('API_KEY')
 USER_NAME = os.getenv('USER_NAME')
 
-SOURCE_DIR = '/home/2archivematica/transfer_source'
-PROCESSED_DIR = '/home/2archivematica/transferred'
+SOURCE_DIR = '/path/to/transfer_source'
+PROCESSED_DIR = '/path/to/processed/directory'
 PROCESSING_TYPE = 'unzipped bag'
 
 # Approval headers
