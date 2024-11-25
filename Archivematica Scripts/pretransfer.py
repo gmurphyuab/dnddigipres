@@ -9,17 +9,37 @@ import os
 import shutil
 import tarfile
 from pathlib import Path
+import pwd
+import grp
 
-def copy_and_process_tar_files(src_dir, dest_dir, xml_file):
+def change_ownership_recursive(directory, user_id, group_id):
+    """
+    Recursively changes ownership of all files and directories in the given directory.
+
+    :param directory: Path to the directory
+    :param user_id: User ID for the new ownership
+    :param group_id: Group ID for the new ownership
+    """
+    directory = Path(directory)
+    for root, dirs, files in os.walk(directory):
+        for name in dirs + files:
+            path = Path(root) / name
+            os.chown(path, user_id, group_id)
+    # Also change the ownership of the root directory itself
+    os.chown(directory, user_id, group_id)
+
+def copy_and_process_tar_files(src_dir, dest_dir, xml_file, user_id=None, group_id=None):
     """
     Copies tar files from src_dir to dest_dir, untars them, moves contents up a level,
-    and places the processing configuration XML file in the first level of each untarred directory.
-    Deletes the tar files from dest_dir after processing.
+    and places a specified XML file in the first level of each untarred directory.
+    Deletes the tar files from dest_dir after processing. Logs errors if processing fails.
+    Optionally changes ownership of untarred files and directories.
 
-    :param src_dir: Source directory containing tar files. This is on the Synology NAS. 
-    :param dest_dir: Destination directory for tar files and untarred contents. This is the staging folder in /home/amadmin.
-    :param xml_file: Path to the Processing Configuration XML file to copy into untarred directories. 
-    
+    :param src_dir: Source directory containing tar files
+    :param dest_dir: Destination directory for tar files and untarred contents
+    :param xml_file: Path to the XML file to copy into untarred directories
+    :param user_id: (Optional) User ID for ownership change
+    :param group_id: (Optional) Group ID for ownership change
     """
     src_dir = Path(src_dir)
     dest_dir = Path(dest_dir)
@@ -56,6 +76,10 @@ def copy_and_process_tar_files(src_dir, dest_dir, xml_file):
             else:
                 print(f"Warning: XML file not found at {xml_file}")
             
+            # Change ownership of untarred files and directories, if user_id and group_id are provided
+            if user_id is not None and group_id is not None:
+                change_ownership_recursive(extract_dir, user_id, group_id)
+            
             # Print success message for each processed tar file
             print(f"Successfully processed {tar_path.name}")
         
@@ -69,8 +93,16 @@ def copy_and_process_tar_files(src_dir, dest_dir, xml_file):
     print("All tar files have been deleted from the destination directory.")
 
 if __name__ == "__main__":
-    source_directory = "/path/to/source"
-    destination_directory = "/path/to/destination"
-    xml_file_path = "path/to/processing config XML file"
 
-    copy_and_process_tar_files(source_directory, destination_directory, xml_file_path)
+    source_directory = "/path/to/source_directory"
+    destination_directory = "/path/to/destination_directory"
+    xml_file_path = "/path/to/file.xml"
+
+    user_name = "archivematica"
+    group_name = "archivematica"
+
+    # Resolve user_id and group_id from names
+    user_id = pwd.getpwnam(user_name).pw_uid
+    group_id = grp.getgrnam(group_name).gr_gid
+
+    copy_and_process_tar_files(source_directory, destination_directory, xml_file_path, user_id, group_id)
