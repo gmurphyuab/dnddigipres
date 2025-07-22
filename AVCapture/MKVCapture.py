@@ -7,13 +7,12 @@ import signal
 import threading
 
 # === CONFIGURATION ===
-OUTPUT_DIR = "/home/yourusername/captures"  # Change this to your actual path
+OUTPUT_DIR = "/home/yourusername/captures"  # Change to your actual folder
 VIDEO_DEVICE = "/dev/video0"
 AUDIO_DEVICE = "hw:2,0"
 FILENAME_REGEX = re.compile(r'^[A-Z]{4}_[A-Z]{3}\d{6}$')
 
 ffmpeg_process = None
-ffmpeg_thread = None
 
 # === FUNCTIONS ===
 
@@ -21,7 +20,7 @@ def validate_filename(name):
     return bool(FILENAME_REGEX.match(name))
 
 def start_capture():
-    global ffmpeg_process, ffmpeg_thread
+    global ffmpeg_process
 
     base_name = filename_entry.get().strip()
     if not validate_filename(base_name):
@@ -32,8 +31,14 @@ def start_capture():
     output_path = os.path.join(OUTPUT_DIR, full_filename)
 
     if os.path.exists(output_path):
-        if not messagebox.askyesno("File Exists", f"{output_path} already exists.\nDo you want to overwrite it?"):
+        if not messagebox.askyesno("File Exists", f"{output_path} already exists.\nOverwrite?"):
             return
+
+    try:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    except Exception as e:
+        messagebox.showerror("Directory Error", f"Failed to create directory:\n{str(e)}")
+        return
 
     command = [
         "ffmpeg",
@@ -43,10 +48,17 @@ def start_capture():
         "-slices", "24", "-slicecrc", "1",
         "-c:a", "pcm_s16le",
         "-map", "0:v", "-map", "1:a",
-        "-y",  # always overwrite
+        "-y",  # overwrite output
         output_path
     ]
 
+    # Disable start button, enable stop button
+    start_button.config(state=tk.DISABLED)
+    stop_button.config(state=tk.NORMAL)
+    output_box.insert(tk.END, f"Starting capture:\n{output_path}\n\n")
+    output_box.see(tk.END)
+
+    # Run ffmpeg in a separate thread to avoid freezing GUI
     def run_ffmpeg():
         global ffmpeg_process
         try:
@@ -54,38 +66,41 @@ def start_capture():
                 command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True
+                text=True,
+                bufsize=1
             )
+
             for line in ffmpeg_process.stdout:
                 output_box.insert(tk.END, line)
                 output_box.see(tk.END)
+
             ffmpeg_process.wait()
-            output_box.insert(tk.END, "\nCapture finished.\n")
+            retcode = ffmpeg_process.returncode
+            if retcode == 0:
+                output_box.insert(tk.END, "\nCapture finished successfully.\n")
+            else:
+                output_box.insert(tk.END, f"\nFFmpeg exited with error code {retcode}\n")
         except Exception as e:
-            output_box.insert(tk.END, f"\nError: {str(e)}\n")
+            output_box.insert(tk.END, f"\nError running FFmpeg:\n{str(e)}\n")
         finally:
+            ffmpeg_process = None
             start_button.config(state=tk.NORMAL)
             stop_button.config(state=tk.DISABLED)
 
-    start_button.config(state=tk.DISABLED)
-    stop_button.config(state=tk.NORMAL)
-    output_box.insert(tk.END, f"Starting capture: {output_path}\n")
-    ffmpeg_thread = threading.Thread(target=run_ffmpeg, daemon=True)
-    ffmpeg_thread.start()
+    threading.Thread(target=run_ffmpeg, daemon=True).start()
 
 def stop_capture():
     global ffmpeg_process
     if ffmpeg_process and ffmpeg_process.poll() is None:
-        output_box.insert(tk.END, "Stopping capture (this may take a few seconds)...\n")
+        output_box.insert(tk.END, "\nStopping capture, please wait...\n")
+        output_box.see(tk.END)
         ffmpeg_process.send_signal(signal.SIGINT)
-        stop_button.config(state=tk.DISABLED)
     else:
         messagebox.showinfo("Not Running", "No capture is currently running.")
 
 # === GUI SETUP ===
-
 window = tk.Tk()
-window.title("VHS/Beta Tape Archival Capture")
+window.title("Tape Digitization Capture")
 window.geometry("700x500")
 
 tk.Label(window, text="Enter filename (format: AAAA_BBB000000)").pack(pady=5)
