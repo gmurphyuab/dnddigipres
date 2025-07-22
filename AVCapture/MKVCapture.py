@@ -1,140 +1,103 @@
 import tkinter as tk
-from tkinter import scrolledtext, messagebox
-import subprocess
-import threading
-import os
+from tkinter import messagebox
 import re
+import subprocess
+import os
+import signal
 
-# Hardcoded output directory — update as needed
-HARDCODED_OUTPUT_DIR = "/home/yourusername/VHS_Captures"
+# === HARD-CODED SAVE DIRECTORY ===
+SAVE_DIR = "/home/yourusername/captures"  # Change this to your actual path
 
-# Regex pattern for filename validation: 4 uppercase letters + '_' + 3 uppercase letters + 6 digits
-FILENAME_PATTERN = r'^[A-Z]{4}_[A-Z]{3}\d{6}$'
+# === AUDIO AND VIDEO DEVICES ===
+AUDIO_DEVICE = "hw:2,0"
+VIDEO_DEVICE = "/dev/video0"
 
-ffmpeg_process = None  # Global to hold subprocess reference
+ffmpeg_process = None
 
 def validate_filename(name):
-    return re.match(FILENAME_PATTERN, name) is not None
+    pattern = r"^[A-Z]{4}_[A-Z]{3}\d{6}$"
+    return re.match(pattern, name)
 
 def start_capture():
     global ffmpeg_process
-    if ffmpeg_process is not None:
-        messagebox.showwarning("Warning", "Capture is already running.")
-        return
 
-    base_name = entry.get().strip()
-    if not base_name:
-        messagebox.showerror("Error", "Please enter a filename.")
-        return
+    base_name = filename_entry.get().strip()
 
     if not validate_filename(base_name):
-        messagebox.showerror("Error", f"Filename must follow the UUID naming convention: Example: DNDP_TES000001")
+        messagebox.showerror("Invalid Filename", "Filename must match: AAAA_BBB000000")
         return
 
-    os.makedirs(HARDCODED_OUTPUT_DIR, exist_ok=True)
-
-    output_path = os.path.join(HARDCODED_OUTPUT_DIR, f"{base_name}_raw.mkv")
+    output_path = os.path.join(SAVE_DIR, f"{base_name}_raw.mkv")
 
     if os.path.exists(output_path):
-        proceed = messagebox.askyesno(
-            "File Exists",
-            f"The file:\n\n{output_path}\n\nalready exists.\nDo you wish to proceed and overwrite it?"
-        )
-        if not proceed:
-            text_output.insert(tk.END, "Capture canceled by user.\n")
-            text_output.see(tk.END)
+        overwrite = messagebox.askyesno("File Exists", "This file name already exists. Do you wish to proceed and overwrite the existing file?")
+        if not overwrite:
             return
+        os.remove(output_path)
 
-    text_output.insert(tk.END, f"Starting capture to:\n{output_path}\n\n")
-    text_output.see(tk.END)
-
-    # Build FFmpeg + ffplay command with your devices
-    command = [
+    # FFmpeg command
+    cmd = [
         "ffmpeg",
-        "-f", "v4l2",
-        "-i", "/dev/video0",
-        "-f", "alsa",
-        "-i", "hw:2,0",
-        "-map", "0:v:0",
-        "-map", "1:a:0",
-        "-c:v", "ffv1",
-        "-level", "3",
-        "-coder", "1",
-        "-context", "1",
-        "-g", "1",
-        "-slices", "24",
-        "-slicecrc", "1",
+        "-f", "v4l2", "-i", VIDEO_DEVICE,
+        "-f", "alsa", "-i", AUDIO_DEVICE,
+        "-c:v", "ffv1", "-level", "3", "-coder", "1", "-context", "1", "-g", "1",
+        "-slices", "24", "-slicecrc", "1",
         "-c:a", "pcm_s16le",
+        "-map", "0:v", "-map", "1:a",
         "-f", "tee",
-        f"[f=mkv]{output_path}|[f=nut]pipe:"
+        f"[f=mkv]{output_path}|[f=mpegts]udp://127.0.0.1:1234?pkt_size=1316"
     ]
 
-    # Use Popen with shell=False and pipe stdout, then pipe to ffplay
-    # We'll start ffplay separately reading from the pipe
+    try:
+        ffmpeg_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+        log_output.insert(tk.END, f"Started capturing to:\n{output_path}\n\n")
+        log_output.see(tk.END)
+        root.after(100, read_ffmpeg_output)
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to start ffmpeg:\n{e}")
 
-    # To simplify, we will run the full shell command to pipe to ffplay:
-    full_command = (
-        f'ffmpeg -f v4l2 -i /dev/video0 '
-        f'-f alsa -i hw:2,0 '
-        f'-map 0:v:0 -map 1:a:0 '
-        f'-c:v ffv1 -level 3 -coder 1 -context 1 -g 1 -slices 24 -slicecrc 1 '
-        f'-c:a pcm_s16le '
-        f'-f tee "[f=mkv]{output_path}|[f=nut]pipe:" | ffplay -'
-    )
-
-    def run_ffmpeg():
-        global ffmpeg_process
-        # Run as shell command because of pipe
-        ffmpeg_process = subprocess.Popen(full_command, shell=True,
-                                          stdout=subprocess.PIPE,
-                                          stderr=subprocess.STDOUT,
-                                          text=True,
-                                          bufsize=1)
-
-        for line in ffmpeg_process.stdout:
-            text_output.insert(tk.END, line)
-            text_output.see(tk.END)
-
-        ffmpeg_process.stdout.close()
-        ffmpeg_process.wait()
-        text_output.insert(tk.END, "\nCapture finished.\n")
-        text_output.see(tk.END)
-        ffmpeg_process = None  # Reset after finishing
-
-    threading.Thread(target=run_ffmpeg, daemon=True).start()
+def read_ffmpeg_output():
+    if ffmpeg_process and ffmpeg_process.poll() is None:
+        line = ffmpeg_process.stdout.readline()
+        if line:
+            log_output.insert(tk.END, line)
+            log_output.see(tk.END)
+        root.after(100, read_ffmpeg_output)
 
 def stop_capture():
     global ffmpeg_process
-    if ffmpeg_process is None:
-        messagebox.showinfo("Info", "No capture is currently running.")
-        return
+    if ffmpeg_process and ffmpeg_process.poll() is None:
+        log_output.insert(tk.END, "\nStopping capture...\n")
+        ffmpeg_process.send_signal(signal.SIGINT)
+        ffmpeg_process.wait()
+        log_output.insert(tk.END, "Capture stopped. File finalized.\n")
+        log_output.see(tk.END)
+    else:
+        messagebox.showinfo("Not Running", "FFmpeg is not currently capturing.")
 
-    # Send 'q' to ffmpeg process to stop gracefully (equivalent to pressing 'q' in terminal)
-    # We can do this by sending SIGINT or writing 'q' to its stdin if supported
-    # Since we used shell=True, stdin is None; so let's send SIGINT
-
-    ffmpeg_process.terminate()  # Send SIGTERM, usually ffmpeg stops and finalizes file
-
-    text_output.insert(tk.END, "\nStopping capture...\n")
-    text_output.see(tk.END)
-
+# === GUI ===
 root = tk.Tk()
-root.title("FFV1 Video Capture to MKV")
+root.title("VHS Capture GUI")
 
-tk.Label(root, text="Enter UUID:").pack(pady=(10, 2))
-entry = tk.Entry(root, width=40)
-entry.pack(pady=2)
+frame = tk.Frame(root, padx=10, pady=10)
+frame.pack()
 
-frame = tk.Frame(root)
-frame.pack(pady=10)
+tk.Label(frame, text="Enter filename (AAAA_BBB000000):").grid(row=0, column=0, sticky="w")
+filename_entry = tk.Entry(frame, width=30)
+filename_entry.grid(row=0, column=1)
 
-start_button = tk.Button(frame, text="Start Capture", command=start_capture)
-start_button.pack(side=tk.LEFT, padx=5)
+start_button = tk.Button(frame, text="Start Capture", command=start_capture, bg="green", fg="white")
+start_button.grid(row=1, column=0, pady=10)
 
-stop_button = tk.Button(frame, text="Stop Capture", command=stop_capture)
-stop_button.pack(side=tk.LEFT, padx=5)
+stop_button = tk.Button(frame, text="Stop Capture", command=stop_capture, bg="red", fg="white")
+stop_button.grid(row=1, column=1, pady=10)
 
-text_output = scrolledtext.ScrolledText(root, height=20, width=100)
-text_output.pack(padx=10, pady=(5, 10))
+log_output = tk.Text(root, height=20, width=80)
+log_output.pack(padx=10, pady=(0, 10))
 
 root.mainloop()
