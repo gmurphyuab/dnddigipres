@@ -1,103 +1,101 @@
 import tkinter as tk
-from tkinter import messagebox
-import re
+from tkinter import messagebox, scrolledtext
 import subprocess
 import os
+import re
 import signal
 
-# === HARD-CODED SAVE DIRECTORY ===
-SAVE_DIR = "/home/yourusername/captures"  # Change this to your actual path
-
-# === AUDIO AND VIDEO DEVICES ===
-AUDIO_DEVICE = "hw:2,0"
+# === CONFIGURATION ===
+OUTPUT_DIR = "/home/yourusername/captures"  # <-- Change this to your actual save path
 VIDEO_DEVICE = "/dev/video0"
+AUDIO_DEVICE = "hw:2,0"
+FFMPEG_PATH = "ffmpeg"
 
+FILENAME_PATTERN = re.compile(r'^[A-Z]{4}_[A-Z]{3}\d{6}$')
 ffmpeg_process = None
 
-def validate_filename(name):
-    pattern = r"^[A-Z]{4}_[A-Z]{3}\d{6}$"
-    return re.match(pattern, name)
-
+# === FUNCTIONS ===
 def start_capture():
     global ffmpeg_process
 
-    base_name = filename_entry.get().strip()
-
-    if not validate_filename(base_name):
-        messagebox.showerror("Invalid Filename", "Filename must match: AAAA_BBB000000")
+    filename = filename_entry.get().strip()
+    if not FILENAME_PATTERN.match(filename):
+        messagebox.showerror("Invalid Filename", "Use UUID format.")
         return
 
-    output_path = os.path.join(SAVE_DIR, f"{base_name}_raw.mkv")
+    output_file = os.path.join(OUTPUT_DIR, filename + "_raw.mkv")
 
-    if os.path.exists(output_path):
-        overwrite = messagebox.askyesno("File Exists", "This file name already exists. Do you wish to proceed and overwrite the existing file?")
-        if not overwrite:
+    if os.path.exists(output_file):
+        if not messagebox.askyesno("Overwrite?", f"{output_file} already exists.\nDo you want to overwrite it?"):
             return
-        os.remove(output_path)
 
-    # FFmpeg command
-    cmd = [
-        "ffmpeg",
+    command = [
+        FFMPEG_PATH,
         "-f", "v4l2", "-i", VIDEO_DEVICE,
         "-f", "alsa", "-i", AUDIO_DEVICE,
         "-c:v", "ffv1", "-level", "3", "-coder", "1", "-context", "1", "-g", "1",
         "-slices", "24", "-slicecrc", "1",
         "-c:a", "pcm_s16le",
         "-map", "0:v", "-map", "1:a",
-        "-f", "tee",
-        f"[f=mkv]{output_path}|[f=mpegts]udp://127.0.0.1:1234?pkt_size=1316"
+        output_file
     ]
 
     try:
         ffmpeg_process = subprocess.Popen(
-            cmd,
+            command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True
+            text=True,
+            bufsize=1
         )
-        log_output.insert(tk.END, f"Started capturing to:\n{output_path}\n\n")
-        log_output.see(tk.END)
-        root.after(100, read_ffmpeg_output)
+        output_text.insert(tk.END, f"Started capture to: {output_file}\n")
+        start_button.config(state=tk.DISABLED)
+        stop_button.config(state=tk.NORMAL)
+        window.after(100, read_ffmpeg_output)
     except Exception as e:
-        messagebox.showerror("Error", f"Failed to start ffmpeg:\n{e}")
+        messagebox.showerror("FFmpeg Error", str(e))
+        ffmpeg_process = None
 
 def read_ffmpeg_output():
-    if ffmpeg_process and ffmpeg_process.poll() is None:
+    if ffmpeg_process and ffmpeg_process.stdout:
         line = ffmpeg_process.stdout.readline()
         if line:
-            log_output.insert(tk.END, line)
-            log_output.see(tk.END)
-        root.after(100, read_ffmpeg_output)
+            output_text.insert(tk.END, line)
+            output_text.see(tk.END)
+        if ffmpeg_process.poll() is None:
+            window.after(100, read_ffmpeg_output)
+        else:
+            output_text.insert(tk.END, "\nCapture completed.\n")
+            start_button.config(state=tk.NORMAL)
+            stop_button.config(state=tk.DISABLED)
+    else:
+        output_text.insert(tk.END, "No FFmpeg process running.\n")
 
 def stop_capture():
     global ffmpeg_process
     if ffmpeg_process and ffmpeg_process.poll() is None:
-        log_output.insert(tk.END, "\nStopping capture...\n")
         ffmpeg_process.send_signal(signal.SIGINT)
-        ffmpeg_process.wait()
-        log_output.insert(tk.END, "Capture stopped. File finalized.\n")
-        log_output.see(tk.END)
+        output_text.insert(tk.END, "Stopping capture (this may take a few seconds)...\n")
     else:
-        messagebox.showinfo("Not Running", "FFmpeg is not currently capturing.")
+        messagebox.showinfo("Info", "Capture is not currently running.")
 
-# === GUI ===
-root = tk.Tk()
-root.title("VHS Capture GUI")
+# === GUI SETUP ===
+window = tk.Tk()
+window.title("Video Tape Capture")
+window.geometry("700x500")
 
-frame = tk.Frame(root, padx=10, pady=10)
-frame.pack()
+tk.Label(window, text="Enter UUID: ").pack(pady=5)
+filename_entry = tk.Entry(window, width=40)
+filename_entry.pack()
 
-tk.Label(frame, text="Enter filename (AAAA_BBB000000):").grid(row=0, column=0, sticky="w")
-filename_entry = tk.Entry(frame, width=30)
-filename_entry.grid(row=0, column=1)
+btn_frame = tk.Frame(window)
+btn_frame.pack(pady=10)
+start_button = tk.Button(btn_frame, text="Start Capture", command=start_capture, width=20)
+start_button.pack(side=tk.LEFT, padx=10)
+stop_button = tk.Button(btn_frame, text="Stop Capture", command=stop_capture, width=20, state=tk.DISABLED)
+stop_button.pack(side=tk.RIGHT, padx=10)
 
-start_button = tk.Button(frame, text="Start Capture", command=start_capture, bg="green", fg="white")
-start_button.grid(row=1, column=0, pady=10)
+output_text = scrolledtext.ScrolledText(window, height=20, width=80)
+output_text.pack(pady=10)
 
-stop_button = tk.Button(frame, text="Stop Capture", command=stop_capture, bg="red", fg="white")
-stop_button.grid(row=1, column=1, pady=10)
-
-log_output = tk.Text(root, height=20, width=80)
-log_output.pack(padx=10, pady=(0, 10))
-
-root.mainloop()
+window.mainloop()
